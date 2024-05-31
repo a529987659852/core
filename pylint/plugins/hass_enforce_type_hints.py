@@ -113,6 +113,7 @@ _TEST_FIXTURES: dict[str, list[str] | str] = {
     "entity_registry_enabled_by_default": "None",
     "event_loop": "AbstractEventLoop",
     "freezer": "FrozenDateTimeFactory",
+    "hass": "HomeAssistant",
     "hass_access_token": "str",
     "hass_admin_credential": "Credentials",
     "hass_admin_user": "MockUser",
@@ -3140,7 +3141,10 @@ class HassTypeHintChecker(BaseChecker):
         self._module_name = node.name
         self._in_test_module = self._module_name.startswith("tests.")
 
-        if (module_platform := _get_module_platform(node.name)) is None:
+        if (
+            self._in_test_module
+            or (module_platform := _get_module_platform(node.name)) is None
+        ):
             return
 
         if module_platform in _PLATFORMS:
@@ -3215,6 +3219,24 @@ class HassTypeHintChecker(BaseChecker):
         if self._ignore_function(node, annotations):
             return
 
+        # Check method or function matchers.
+        if node.is_method():
+            matchers = _METHOD_MATCH
+        else:
+            if self._in_test_module:
+                if node.name.startswith("test_"):
+                    self._check_test_function(node, False)
+                    return
+                if (decoratornames := node.decoratornames()) and (
+                    # `@pytest.fixture`
+                    "_pytest.fixtures.fixture" in decoratornames
+                    # `@pytest.fixture(...)`
+                    or "_pytest.fixtures.FixtureFunctionMarker" in decoratornames
+                ):
+                    self._check_test_function(node, True)
+                    return
+            matchers = self._function_matchers
+
         # Check that common arguments are correctly typed.
         for arg_name, expected_type in _COMMON_ARGUMENTS.items():
             arg_node, annotation = _get_named_annotation(node, arg_name)
@@ -3224,15 +3246,6 @@ class HassTypeHintChecker(BaseChecker):
                     node=arg_node,
                     args=(arg_name, expected_type, node.name),
                 )
-
-        # Check method or function matchers.
-        if node.is_method():
-            matchers = _METHOD_MATCH
-        else:
-            matchers = self._function_matchers
-            if self._in_test_module and node.name.startswith("test_"):
-                self._check_test_function(node)
-                return
 
         for match in matchers:
             if not match.need_to_check_function(node):
@@ -3292,9 +3305,9 @@ class HassTypeHintChecker(BaseChecker):
                 args=(match.return_type or "None", node.name),
             )
 
-    def _check_test_function(self, node: nodes.FunctionDef) -> None:
+    def _check_test_function(self, node: nodes.FunctionDef, is_fixture: bool) -> None:
         # Check the return type, should always be `None` for test_*** functions.
-        if not _is_valid_type(None, node.returns, True):
+        if not is_fixture and not _is_valid_type(None, node.returns, True):
             self.add_message(
                 "hass-return-type",
                 node=node,
@@ -3303,7 +3316,7 @@ class HassTypeHintChecker(BaseChecker):
         # Check that all positional arguments are correctly annotated.
         for arg_name, expected_type in _TEST_FIXTURES.items():
             arg_node, annotation = _get_named_annotation(node, arg_name)
-            if arg_node and expected_type == "None":
+            if arg_node and expected_type == "None" and not is_fixture:
                 self.add_message(
                     "hass-consider-usefixtures-decorator",
                     node=arg_node,

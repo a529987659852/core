@@ -55,5 +55,12 @@
         }
       }
     }
-  }
+  },
+  "mounts": [
+    // Custom component
+    "source=${localEnv:HOME}/HADevelopment/openwb2mqtt/custom_components/openwb2mqtt,target=${containerWorkspaceFolder}/config/custom_components/openwb2mqtt,type=bind",
+    "source=${localEnv:HOME}/HADevelopment/openwbmqtt/custom_components/openwbmqtt,target=${containerWorkspaceFolder}/config/custom_components/openwbmqtt,type=bind"
+    //Custom library
+    //"source=${localEnv:HOME}/path/to/custom_repo/custom_libraries/library_name,target=${containerWorkspaceFolder}/config/custom_libraries/library_name,type=bind",
+  ]
 }
